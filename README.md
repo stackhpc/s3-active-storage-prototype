@@ -43,7 +43,6 @@ This is a very early-stage project, and as such supports limited functionality.
 
 In particular, the following are known limitations which we intend to address:
 
-  * Only unsigned requests are currently supported, e.g. public buckets only
   * Error handling and reporting is minimal
   * No support for extents, e.g. start, count, stride
     * However `Range GET` requests should work, with the requested operation performed
@@ -84,26 +83,49 @@ uvicorn --reload active_storage.server:app
 
 ### Using boto3 to query active storage endpoints
 
-As mentioned above, the S3 active storage proxy currently only supports unsigned requests
-so `boto3` must be configured appropriately:
+Because the S3 active storage proxy intentionally tampers with requests, it breaks for
+requests
+[authenticated using a signature](https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-auth-using-authorization-header.html)
+when using the standard signature versions.
+
+To allow the S3 active storage proxy to be used with objects that require authentication
+in the upstream S3, it ships with a custom `boto3` signature version that is "active storage aware".
+
+This signature version can be used even when the target S3 endpoint may not support active storage.
+In the case where active storage is not supported by the target S3 endpoint, it gracefully falls
+back to the standard signature implementation.
+
+In order to use this signature version, it must be registered with `boto3` and specified in the
+`boto3` resource configuration:
 
 ```python
 import boto3
-from botocore import UNSIGNED
 from botocore.client import Config
 
+from active_storage.client.boto3 import S3ActiveStorageV4Auth
+
+
+# Register the active storage signature version
+S3ActiveStorageV4Auth.register()
+
+
+# Create an S3 client that uses the active storage signature version
 s3 = boto3.resource(
     "s3",
     endpoint_url = "http://localhost:8000",
-    config = Config(signature_version = UNSIGNED)
+    aws_access_key_id = "minioadmin",
+    aws_secret_access_key = "minioadmin",
+    config = Config(signature_version = S3ActiveStorageV4Auth.SIGNATURE_VERSION)
 )
 ```
 
-Then use the reducer as the bucket and add the datatype to the key. Here we use
-[numpy](https://numpy.org/) to interpret the raw binary data returned by the S3 proxy:
+Then to use active storage operations, just specify the reducer as the bucket and
+add the datatype to the key. Here we use [numpy](https://numpy.org/) to interpret the
+raw binary data returned by the S3 active storage proxy:
 
 ```python
 import numpy as np
+
 
 for dtype in ["int32", "int64", "uint32", "uint64", "float32", "float64"]:
     print(f"dtype: {dtype}")

@@ -7,7 +7,7 @@ import httpx
 import numpy as np
 
 from .config import settings
-from .models import Reducer, NumericDataType
+from .models import NumericDataType
 
 
 app = FastAPI()
@@ -79,35 +79,63 @@ async def upstream_response(
     Returns a streaming response from the upstream based on the incoming request.
     """
     obj_url = f"{settings.s3_endpoint}/{obj_path}"
-    incoming_headers = list(request.headers.items())
+    # Strip the host header from the upstream request
+    # Including it will cause an error unless the upstream S3 is expecting to be proxied
+    incoming_headers = list(
+        (k, v)
+        for k, v in request.headers.items()
+        if k.lower() != 'host'
+    )
     async with client.stream("GET", obj_url, headers = incoming_headers) as response:
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError:
+            # Read the response while we are still in the context manager
             await response.aread()
             raise
         else:
             yield response
 
 
-@app.get("/{reducer}/{dtype}/{obj_path:path}")
-async def reduce(
-    reducer: Reducer,
-    dtype: NumericDataType,
-    upstream_response: httpx.Response = Depends(upstream_response)
-):
+#####
+# Register a handler for each supported reducer so that we correctly get 404s for
+# bad reducers
+#####
+
+def make_reducer_handler(reducer):
     """
-    Returns the max of the numbers in the specified object.
+    Make a handler for the specified reducer.
     """
-    result = None
-    async for chunk in upstream_response.aiter_bytes():
-        if not chunk:
-            continue
-        nparr = np.frombuffer(chunk, dtype)
-        if result is not None:
-            nparr = np.append(nparr, result)
-        result = reducer(nparr)
-    return Response(result.tobytes(), media_type = "application/octet-stream")
+    async def handler(
+        dtype: NumericDataType,
+        upstream_response: httpx.Response = Depends(upstream_response)
+    ):
+        result = None
+        async for chunk in upstream_response.aiter_bytes():
+            if not chunk:
+                continue
+            nparr = np.frombuffer(chunk, dtype)
+            if result is not None:
+                nparr = np.append(nparr, result)
+            result = reducer(nparr)
+        return Response(result.tobytes(), media_type = "application/octet-stream")
+    return handler
+
+
+REDUCERS = {
+    "max": np.amax,
+    "min": np.amin,
+    # Prevent sum from using a dtype with increased precision
+    "sum": lambda arr: np.sum(arr, dtype = arr.dtype),
+    # Always return counts as int64
+    "count": lambda arr: np.prod(arr.shape, dtype = np.int64),
+}
+for name, reducer in REDUCERS.items():
+    app.add_api_route(
+        f"/{name}/{{dtype}}/{{obj_path:path}}",
+        make_reducer_handler(reducer),
+        methods = ["GET"]
+    )
 
 
 @app.get("/obj/{obj_path:path}")
@@ -119,3 +147,16 @@ async def obj(upstream_response: httpx.Response = Depends(upstream_response)):
         upstream_response.aiter_bytes(),
         status_code = upstream_response.status_code
     )
+
+
+@app.get("/.well-known/s3-active-storage")
+async def well_known():
+    """
+    Responds with information about the supported operations.
+    """
+    return {
+        "active_storage_version": "v1",
+        "s3_endpoint": settings.s3_endpoint,
+        "available_reducers": list(REDUCERS.keys()),
+        "supported_datatypes": list(NumericDataType.DATATYPES.keys()),
+    }
