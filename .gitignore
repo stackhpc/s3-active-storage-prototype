@@ -1,0 +1,6 @@
+__pycache__
+*.egg-info
+.minio.sys
+a.out
+.python-version
+venv
