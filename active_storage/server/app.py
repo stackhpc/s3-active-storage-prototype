@@ -7,7 +7,7 @@ import botocore
 import aioboto3
 import numpy as np
 
-from .models import RequestData, OperationType, AllowedDatatypes, ALLOWED_OPERATIONS
+from .models import RequestData, Reducer, AllowedDatatypes, ALLOWED_OPERATIONS
 
 
 app = FastAPI()
@@ -168,7 +168,7 @@ async def upstream_s3_response_generator(
 
 
 
-def make_reducer_handler(operation: OperationType) -> callable:
+def make_reducer_handler(operation: Reducer) -> callable:
 
     """ Constructs a handler function for each allowed api operation """
 

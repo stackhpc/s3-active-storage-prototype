@@ -42,16 +42,16 @@ class RequestData(BaseModel):
 # operation to a list of chunk results - we need to sum the individual chunk results instead.
 
 @dataclass
-class OperationType:
+class Reducer:
     """ Container to hold functions required for a chunk-wise reduction """
     name: str
     chunk_reducer: Callable
     aggregator: Callable
 
 ALLOWED_OPERATIONS = {
-    'sum': OperationType('sum', chunk_reducer = lambda arr: np.sum(arr, dtype=arr.dtype), aggregator = lambda result1, result2: np.sum([result1, result2], dtype=result1.dtype)),
-    'min': OperationType('min', chunk_reducer = np.min, aggregator = lambda result1, result2: np.min([result1, result2])),
-    'max': OperationType('max', chunk_reducer = np.max, aggregator = lambda result1, result2: np.max([result1, result2])),
-    'count': OperationType('count', chunk_reducer = lambda arr: np.prod(arr.shape, dtype = 'int64'), aggregator = lambda result1, result2: np.sum([result1, result2], dtype='int64')), #Sum is the correct aggregator here
-    'select': OperationType('select', chunk_reducer = lambda arr: arr, aggregator = lambda result1, result2: np.concatenate([result2, result1], dtype=result1.dtype)),
+    'sum': Reducer('sum', chunk_reducer = lambda arr: np.sum(arr, dtype=arr.dtype), aggregator = lambda result1, result2: np.sum([result1, result2], dtype=result1.dtype)),
+    'min': Reducer('min', chunk_reducer = np.min, aggregator = lambda result1, result2: np.min([result1, result2])),
+    'max': Reducer('max', chunk_reducer = np.max, aggregator = lambda result1, result2: np.max([result1, result2])),
+    'count': Reducer('count', chunk_reducer = lambda arr: np.prod(arr.shape, dtype = 'int64'), aggregator = lambda result1, result2: np.sum([result1, result2], dtype='int64')), #Sum is the correct aggregator here
+    'select': Reducer('select', chunk_reducer = lambda arr: arr, aggregator = lambda result1, result2: np.concatenate([result2, result1], dtype=result1.dtype)),
 }
