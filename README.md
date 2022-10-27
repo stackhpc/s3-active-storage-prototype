@@ -74,7 +74,7 @@ with a json payload of the form:
 }
 ```
 
-The currently supported reducers are `max`, `min`, `sum`, `selection` and `count`. All reducers return the result using the same datatype as specified in the request except for `count` which always returns the result as `int64`.
+The currently supported reducers are `max`, `min`, `sum`, `select` and `count`. All reducers return the result using the same datatype as specified in the request except for `count` which always returns the result as `int64`.
 
 For a running instance of the proxy server, the full OpenAPI specification is browsable at the `{proxy-address}/docs/` endpoint.
 
