@@ -76,7 +76,7 @@ with a json payload of the form:
 
 The currently supported reducers are `max`, `min`, `sum`, `selection` and `count`. All reducers return the result using the same datatype as specified in the request except for `count` which always returns the result as `int64`.
 
-For a running instance of the proxy server, the full OpenAPI specification is browsable at the `{proxy-address}/docs/` end point.
+For a running instance of the proxy server, the full OpenAPI specification is browsable at the `{proxy-address}/docs/` endpoint.
 
 
 ## Caveats
@@ -111,6 +111,8 @@ In a separate terminal, install and run the S3 active storage proxy using a Pyth
 ```sh
 # Create a virtualenv
 python -m venv ./venv
+# Activate the virtualenv
+source ./venv/bin/activate
 # Install the S3 active storage package and dependencies
 pip install -e .
 # Install an ASGI server to run the application
@@ -118,6 +120,9 @@ pip install uvicorn
 # Launch the application
 uvicorn --reload active_storage.server:app
 ```
+
+Proxy functionality can be tested using the [S3 active storage compliance suite](https://github.com/stackhpc/s3-active-storage-compliance-suite).
+
 
 ### Making requests to active storage endpoints
 
