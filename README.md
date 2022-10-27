@@ -59,11 +59,13 @@ with a json payload of the form:
     // - optional, defaults to a simple 1D array
     "shape": [20, 5],
 
-    // Indicates whether the data is in C order (row major) or Fortran order (column major, indicated by 'F')
+    // Indicates whether the data is in C order (row major)
+    // or Fortran order (column major, indicated by 'F')
     // - optional, defaults to 'C'
     "order": "C|F",
 
-    // An array of [start, end, stride] tuples (one per element of "shape") indicating the data to operate on
+    // An array of [start, end, stride] tuples indicating the data to be operated on
+    // (if given, you must supply one tuple per element of "shape")
     // - optional, defaults to the whole array
     "selection": [
         [0, 19, 2],
@@ -74,7 +76,7 @@ with a json payload of the form:
 
 The currently supported reducers are `max`, `min`, `sum`, `selection` and `count`. All reducers return the result using the same datatype as specified in the request except for `count` which always returns the result as `int64`.
 
-For a running instance of the proxy server, the full OpenAPI specification is browsable at `http[s]://{proxy-address}/docs/` (or `http[s]://{proxy-address}/redoc/` for an alternative rendering).
+For a running instance of the proxy server, the full OpenAPI specification is browsable at the `{proxy-address}/docs/` end point.
 
 
 ## Caveats
@@ -110,7 +112,6 @@ In a separate terminal, install and run the S3 active storage proxy using a Pyth
 # Create a virtualenv
 python -m venv ./venv
 # Install the S3 active storage package and dependencies
-pip install git+https://github.com/stackhpc/configomatic.git
 pip install -e .
 # Install an ASGI server to run the application
 pip install uvicorn
@@ -122,14 +123,14 @@ uvicorn --reload active_storage.server:app
 
 Request authentication is implemented using [Basic Auth](https://en.wikipedia.org/wiki/Basic_access_authentication) with the username and password consisting of your AWS Access Key ID and Secret Access Key, respectively. These credentials are then used internally to authenticate with the upstream S3 source using [standard AWS authentication methods](https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-auth-using-authorization-header.html)
 
-A request to an active storage proxy running locally with Minio as the S3 source is therefore as simple as:
+A request to an active storage proxy running on localhost with Minio as the S3 source is as simple as:
 
 ```python
 import requests
 import numpy as np
 
 request_data = {
-  'source': 'http://localhost:9001',
+  'source': 'http://localhost:9000',
   'bucket': 'sample-data',
   'object': 'data-float32.dat',
   'dtype': 'float32',
@@ -137,8 +138,12 @@ request_data = {
 }
 
 reducer = 'sum'
-response = requests.post(f'http://localhost:8000/v1/{reducer}', json=request_data, auth=('minioadmin', 'minioadmin'))
+response = requests.post(
+  f'http://localhost:8000/v1/{reducer}',
+  json=request_data, 
+  auth=('minioadmin', 'minioadmin')
+)
 sum_result = np.frombuffer(response.content, dtype=response.headers['x-activestorage-dtype'])
 ```
 
-The proxy adds a custom header `x-activestorage-dtype` HTTP header to the response to allow the numeric result to be reconstructed from the binary content of the response.
+The proxy adds two custom headers `x-activestorage-dtype` and `x-activestrorage-shape` to the HTTP response to allow the numeric result to be reconstructed from the binary content of the response.
