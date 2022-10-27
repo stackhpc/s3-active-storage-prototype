@@ -137,14 +137,14 @@ async def upstream_s3_response_generator(
 
                 if len(bytes_ranges) == 1:
                     #Read response in chunks using iter_chunks method of S3 StreamingResponse
-                    response = await s3_client.get_object(Bucket=request_data.bucket, Key=request_data.obj_path, Range=bytes_ranges[0])
+                    response = await s3_client.get_object(Bucket=request_data.bucket, Key=request_data.object, Range=bytes_ranges[0])
                     async for chunk in response['Body'].iter_chunks(chunk_size=1024*8):
                         yield chunk
 
                 elif len(bytes_ranges) > 1:
                     #Otherwise, make one upstream request per byte range and return these as a generator
                     for b in bytes_ranges: 
-                        response = await s3_client.get_object(Bucket=request_data.bucket, Key=request_data.obj_path, Range=b)
+                        response = await s3_client.get_object(Bucket=request_data.bucket, Key=request_data.object, Range=b)
                         data = await response['Body'].read()
                         yield data
         

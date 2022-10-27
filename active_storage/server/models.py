@@ -1,8 +1,10 @@
+
 from enum import Enum
 from typing import Optional, List, Callable
-import numpy as np
-from pydantic import BaseModel, Field
 from dataclasses import dataclass
+
+from pydantic import BaseModel, Field
+import numpy as np
 
 
 #Use enum which also subclasses string type so that auto-generated OpenAPI schema can determine allowed dtypes
@@ -23,7 +25,7 @@ class AllowedDatatypes(str, Enum):
 class RequestData(BaseModel):
     source: str
     bucket: str
-    obj_path: str
+    object: str
     dtype: AllowedDatatypes
     offset: Optional[int] = 0
     size: Optional[int] = Field(example=1024) #Use example kwarg for OpenAPI generated schema
