@@ -2,7 +2,7 @@
 
 This project implements simple reductions on S3 objects containing numeric binary data.
 By implementing these reductions in the storage system the volume of data that needs to be
-transferred is vastly reduced, leading to faster computations.
+transferred to the end user is vastly reduced, leading to faster computations.
 
 The work is funded by the
 [ExCALIBUR project](https://www.metoffice.gov.uk/research/approach/collaboration/spf/excalibur)
@@ -11,12 +11,9 @@ and is done in collaboration with the
 
 ## Concepts
 
-The S3 active storage proxy supports the application of reductions to S3 objects that contain
-numeric binary data. These reductions are specified by modifying the path that is used to access
-the object.
+The S3 active storage proxy supports the application of reductions to S3 objects that contain numeric binary data. These reductions are specified by making a HTTP post request to the active storage proxy service.
 
-The S3 active storage proxy does not attempt to infer the datatype - it must be told the datatype
-to use based on knowledge that the client already has about the S3 object.
+The S3 active storage proxy does not attempt to infer the datatype - it must be told the datatype to use based on knowledge that the client already has about the S3 object.
 
 For example, if the original object has the following URL:
 
@@ -24,18 +21,61 @@ For example, if the original object has the following URL:
 http[s]://s3.example.org/my-bucket/path/to/object
 ```
 
-Then S3 active storage proxy endpoints take the form:
+Then S3 active storage proxy could be used by making post requests to specfic reducer endpoints:
 
 ```
-http[s]://s3-proxy.example.org/{reducer}/{datatype}/my-bucket/path/to/object
+http[s]://s3-proxy.example.org/v1/{reducer}/
 ```
 
-The currently supported datatypes are `int32`, `int64`, `uint32`, `uint64`, `float32` and `float64`.
+with a json payload of the form:
 
-The currently supported reducers are `max`, `min`, `sum` and `count`.
+```
+{
+    // The URL for the S3 source
+    // - required
+    "source": "https://s3.example.com/,
 
-`max`, `min` and `sum` return the result using the same datatype as specified in the request.
-`count` always returns the result as `int64`.
+    // The name of the S3 bucket
+    // - required
+    "bucket": "my-bucket",
+
+    // The path to the object within the bucket
+    // - required
+    "object": "path/to/object",
+
+    // The data type to use when interpreting binary data
+    // - required
+    "dtype": "int32|int64|uint32|uint64|float32|float64",
+
+    // The offset in bytes to use when reading data
+    // - optional, defaults to zero
+    "offset": 0,
+
+    // The number of bytes to read
+    // - optional, defaults to the size of the entire object
+    "size": 100,
+
+    // The shape of the data (i.e. the size of each dimension) 
+    // - optional, defaults to a simple 1D array
+    "shape": [20, 5],
+
+    // Indicates whether the data is in C order (row major) or Fortran order (column major, indicated by 'F')
+    // - optional, defaults to 'C'
+    "order": "C|F",
+
+    // An array of [start, end, stride] tuples (one per element of "shape") indicating the data to operate on
+    // - optional, defaults to the whole array
+    "selection": [
+        [0, 19, 2],
+        [1, 3, 1]
+    ]
+}
+```
+
+The currently supported reducers are `max`, `min`, `sum`, `selection` and `count`. All reducers return the result using the same datatype as specified in the request except for `count` which always returns the result as `int64`.
+
+For a running instance of the proxy server, the full OpenAPI specification is browsable at `http[s]://{proxy-address}/docs/` (or `http[s]://{proxy-address}/redoc/` for an alternative rendering).
+
 
 ## Caveats
 
@@ -44,9 +84,6 @@ This is a very early-stage project, and as such supports limited functionality.
 In particular, the following are known limitations which we intend to address:
 
   * Error handling and reporting is minimal
-  * No support for extents, e.g. start, count, stride
-    * However `Range GET` requests should work, with the requested operation performed
-      on only the data returned from the upstream
   * No support for missing data
   * No support for compressed or encrypted objects
 
@@ -81,63 +118,27 @@ pip install uvicorn
 uvicorn --reload active_storage.server:app
 ```
 
-### Using boto3 to query active storage endpoints
+### Making requests to active storage endpoints
 
-Because the S3 active storage proxy intentionally tampers with requests, it breaks for
-requests
-[authenticated using a signature](https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-auth-using-authorization-header.html)
-when using the standard signature versions.
+Request authentication is implemented using [Basic Auth](https://en.wikipedia.org/wiki/Basic_access_authentication) with the username and password consisting of your AWS Access Key ID and Secret Access Key, respectively. These credentials are then used internally to authenticate with the upstream S3 source using [standard AWS authentication methods](https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-auth-using-authorization-header.html)
 
-To allow the S3 active storage proxy to be used with objects that require authentication
-in the upstream S3, it ships with a custom `boto3` signature version that is "active storage aware".
-
-This signature version can be used even when the target S3 endpoint may not support active storage.
-In the case where active storage is not supported by the target S3 endpoint, it gracefully falls
-back to the standard signature implementation.
-
-In order to use this signature version, it must be registered with `boto3` and specified in the
-`boto3` resource configuration:
+A request to an active storage proxy running locally with Minio as the S3 source is therefore as simple as:
 
 ```python
-import boto3
-from botocore.client import Config
-
-from active_storage.client.boto3 import S3ActiveStorageV4Auth
-
-
-# Register the active storage signature version
-S3ActiveStorageV4Auth.register()
-
-
-# Create an S3 client that uses the active storage signature version
-s3 = boto3.resource(
-    "s3",
-    endpoint_url = "http://localhost:8000",
-    aws_access_key_id = "minioadmin",
-    aws_secret_access_key = "minioadmin",
-    config = Config(signature_version = S3ActiveStorageV4Auth.SIGNATURE_VERSION)
-)
-```
-
-Then to use active storage operations, just specify the reducer as the bucket and
-add the datatype to the key. Here we use [numpy](https://numpy.org/) to interpret the
-raw binary data returned by the S3 active storage proxy:
-
-```python
+import requests
 import numpy as np
 
+request_data = {
+  'source': 'http://localhost:9001',
+  'bucket': 'sample-data',
+  'object': 'data-float32.dat',
+  'dtype': 'float32',
+  # All other fields assume their default values
+}
 
-for dtype in ["int32", "int64", "uint32", "uint64", "float32", "float64"]:
-    print(f"dtype: {dtype}")
-
-    obj = s3.Object("count", f"{dtype}/sample-data/data-{dtype}.dat")
-    data = obj.get()["Body"].read()
-    arr = np.frombuffer(data, dtype = np.int64)
-    print(f"  count data: {arr}")
-
-    for reducer in ["max", "min", "sum"]:
-        obj = s3.Object(reducer, f"{dtype}/sample-data/data-{dtype}.dat")
-        data = obj.get()["Body"].read()
-        arr = np.frombuffer(data, dtype = getattr(np, dtype))
-        print(f"  {reducer} data: {arr}")
+reducer = 'sum'
+response = requests.post(f'http://localhost:8000/v1/{reducer}', json=request_data, auth=('minioadmin', 'minioadmin'))
+sum_result = np.frombuffer(response.content, dtype=response.headers['x-activestorage-dtype'])
 ```
+
+The proxy adds a custom header `x-activestorage-dtype` HTTP header to the response to allow the numeric result to be reconstructed from the binary content of the response.
