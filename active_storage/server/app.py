@@ -51,21 +51,14 @@ def validate_request(request_data: RequestData):
     """
     dtype = request_data.dtype
     offset = request_data.offset
+    n_bytes = AllowedDatatypes[dtype].n_bytes()
 
-    if dtype not in AllowedDatatypes.__members__.keys():
-        raise HTTPException(
-            status_code=400, detail=f'Invalid data type ({request_data.dtype})')
-
-    elif offset is not None and (offset < 0 or offset % AllowedDatatypes[dtype].n_bytes() != 0):
-        msg = ''.join([
-            'Offset parameter must be a positive integer and be divisible by number of bytes in dtype',
-            '(usually 4 or 8).',
-            'Given offset = {request_data.offset}',
+    if offset is not None and (offset < 0 or offset % n_bytes != 0):
+        msg = ' '.join([
+            'Offset parameter must be divisible by number of bytes in dtype',
+            f'(i.e. {n_bytes} for dtype {dtype}).',
+            f'Given offset = {request_data.offset}',
         ])
-        raise HTTPException(status_code=400, detail=msg)
-
-    elif request_data.size is not None and request_data.size < 1:
-        msg = f"Size parameter must be a positive integer. Given size = {request_data.size}"
         raise HTTPException(status_code=400, detail=msg)
 
     elif request_data.order not in ['C', 'F']:
@@ -78,25 +71,11 @@ def validate_request(request_data: RequestData):
 
     elif request_data.shape is not None:
 
-        if any(map(lambda x: x < 1, request_data.shape)):
+        if request_data.selection and len(request_data.shape) != len(request_data.selection):
             raise HTTPException(
                 status_code=400,
-                detail='All elements in shape list must be positive integers'
+                detail='Selection parameter list must have same number of elements as shape parameter'
             )
-
-        if request_data.selection:
-
-            if len(request_data.shape) != len(request_data.selection):
-                raise HTTPException(
-                    status_code=400,
-                    detail='Selection parameter list must have same number of elements as shape parameter'
-                )
-
-            elif any(map(lambda s: len(s) != 3, request_data.selection)):
-                raise HTTPException(
-                    status_code=400,
-                    detail='Each element of selection parameter list must have exactly 3 elements formatted as [start, stop, stride]'
-                )
 
     return
 
@@ -192,7 +171,7 @@ class OctetStreamResponse(Response):
     media_type = 'application/octet-stream'
 
 
-@app.post('/v1/{op_name}', response_class=OctetStreamResponse)
+@app.post('/v1/{op_name}/', response_class=OctetStreamResponse)
 async def handler(op_name: AllowedReductions, request_data: RequestData, credentials=Depends(security)):
 
     # Will return a relevant HTTP response to the client if request is invalid
