@@ -25,10 +25,7 @@ class S3Exception(Exception):
 @app.exception_handler(S3Exception)
 async def handle_upstream_s3_exception(request, exc: S3Exception):
     """
-    Handles request validation errors by producing S3-style XML documents.
-
-    https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html#RESTErrorResponses
-    https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html#ErrorCodeList
+    Handles request validation errors stemming from the upstream S3 source.
     """
     # Just use the message from the first error
     aws_err_code = exc.upstream_response['Error']['Code']
