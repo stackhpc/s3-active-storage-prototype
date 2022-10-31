@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Optional, List, Callable
 from dataclasses import dataclass
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, constr, conint, conlist
 import numpy as np
 
 
@@ -23,15 +23,15 @@ class AllowedDatatypes(str, Enum):
 
 
 class RequestData(BaseModel):
-    source: str
-    bucket: str
-    object: str
+    source: constr(min_length=1)
+    bucket: constr(min_length=1)
+    object: constr(min_length=1)
     dtype: AllowedDatatypes
-    offset: Optional[int] = 0
-    size: Optional[int] = Field(example=1024) #Use example kwarg for OpenAPI generated schema
-    shape: Optional[List[int]] = Field(example=[10])
+    offset: Optional[conint(ge=0)]
+    size: Optional[conint(ge=1)] = Field(example=1024) #Use example kwarg for OpenAPI generated schema
+    shape: Optional[conlist(item_type=conint(ge=1), min_items=1)]
     order: str = 'C'
-    selection: Optional[List[List[int]]] = Field(example=[[0, 10, 2]], description='Format: [[start, stop, range], [...]]')
+    selection: Optional[List[conlist(item_type=conint(ge=0), max_items=3, min_items=3)]]
 
 
 # For each reduction operation that we implement, we need to specify two functions:
@@ -43,6 +43,15 @@ class RequestData(BaseModel):
 # results to get the max over all chunks but for the 'count' operation we can't just re-apply the count 
 # operation to a list of chunk results - we need to sum the individual chunk results instead.
 
+#Use enum which also subclasses string type so that auto-generated OpenAPI schema can determine allowed dtypes
+class AllowedReductions(str, Enum):
+    """ Reduction operations supported by active storage proxy """
+    sum = 'sum'
+    min = 'min'
+    max = 'max'
+    count = 'count'
+    select = 'select'
+
 @dataclass
 class Reducer:
     """ Container to hold functions required for a chunk-wise reduction """
@@ -50,7 +59,7 @@ class Reducer:
     chunk_reducer: Callable
     aggregator: Callable
 
-ALLOWED_OPERATIONS = {
+REDUCERS = {
     'sum': Reducer('sum', chunk_reducer = lambda arr: np.sum(arr, dtype=arr.dtype), aggregator = lambda result1, result2: np.sum([result1, result2], dtype=result1.dtype)),
     'min': Reducer('min', chunk_reducer = np.min, aggregator = lambda result1, result2: np.min([result1, result2])),
     'max': Reducer('max', chunk_reducer = np.max, aggregator = lambda result1, result2: np.max([result1, result2])),
