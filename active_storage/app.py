@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import Response, JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
+import botocore
 import aioboto3
 import numpy as np
 
@@ -89,14 +90,31 @@ async def upstream_s3_response(request_data: RequestData, credentials: HTTPBasic
         aws_secret_access_key=credentials.password
     ) as s3_client:
 
-        #Use the HTTP Range header to fetch only the bytes we need
-        bytes_start = request_data.offset or 0
-        bytes_end = '' #Use empty string to default to open-ended range request
-        if request_data.size is not None:
-            bytes_start + request_data.size
-        response = await s3_client.get_object(Bucket=request_data.bucket, Key=request_data.object, Range=f'bytes={bytes_start}-{bytes_end}')
-        response_data = await response['Body'].read()
+        try:
+            #Use the HTTP Range header to fetch only the bytes we need
+            bytes_start = request_data.offset or 0
+            bytes_end = '' #Use empty string to default to open-ended range request
+            if request_data.size is not None:
+                bytes_start + request_data.size
+            response = await s3_client.get_object(Bucket=request_data.bucket, Key=request_data.object, Range=f'bytes={bytes_start}-{bytes_end}')
+            response_data = await response['Body'].read()
         
+        except botocore.exceptions.ClientError as err:
+            raise S3Exception(err.response)
+
+        except botocore.exceptions.EndpointConnectionError as err:
+            # Create S3-like error dict to be parsed by exception handler
+            error_info = {
+                'Error': {
+                    'Code': 'UpstreamSourceNotFound',
+                    'Message': 'Could not connect to configured S3 source',
+                    'Resource': 'N/A'
+                },
+                'ResponseMetadata': {
+                    'HTTPStatusCode': 404
+                }
+            }
+            raise S3Exception(error_info)        
         return response_data #Bytes format
 
 
