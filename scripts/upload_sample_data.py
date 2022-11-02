@@ -2,7 +2,7 @@
 import pathlib
 import s3fs
 import numpy as np
-from active_storage.server.models import AllowedDatatypes
+from active_storage.models import AllowedDatatypes
 
 s3_fs = s3fs.S3FileSystem(key='minioadmin', secret='minioadmin', client_kwargs={'endpoint_url': 'http://localhost:9000'})
 data_dir = pathlib.Path('./testdata')
