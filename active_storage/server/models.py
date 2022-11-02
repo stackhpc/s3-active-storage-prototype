@@ -1,28 +1,68 @@
+
+from enum import Enum
+from typing import Optional, List, Callable
+from dataclasses import dataclass
+
+from pydantic import BaseModel, Field, constr, conint, conlist
 import numpy as np
 
 
-class NumericDataType(np.number):
-    """
-    Model for validating a numpy datatype given as a string.
-    """
-    DATATYPES = {
-        "int32": np.int32,
-        "int64": np.int64,
-        "uint32": np.uint32,
-        "uint64": np.uint64,
-        "float32": np.float32,
-        "float64": np.float64,
-    }
+#Use enum which also subclasses string type so that auto-generated OpenAPI schema can determine allowed dtypes
+class AllowedDatatypes(str, Enum):
+    """ Data types supported by active storage proxy """
+    int64 = 'int64'
+    int32 = 'int32'
+    float64 = 'float64'
+    float32 = 'float32'
+    uint64 = 'uint64'
+    uint32 = 'uint32'
 
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
+    def n_bytes(self):
+        """ Returns the number of bytes in the data type """
+        return np.dtype(self.name).itemsize
 
-    @classmethod
-    def validate(cls, v):
-        if not isinstance(v, str):
-            raise TypeError("must be a string")
-        try:
-            return cls.DATATYPES[v]
-        except KeyError:
-            raise ValueError(f"unsupported dtype '{v}'")
+
+class RequestData(BaseModel):
+    source: constr(min_length=1)
+    bucket: constr(min_length=1)
+    object: constr(min_length=1)
+    dtype: AllowedDatatypes
+    offset: Optional[conint(ge=0)]
+    size: Optional[conint(ge=1)] = Field(example=1024) #Use example kwarg for OpenAPI generated schema
+    shape: Optional[conlist(item_type=conint(ge=1), min_items=1)]
+    order: str = 'C'
+    selection: Optional[List[conlist(item_type=conint(ge=0), max_items=3, min_items=3)]]
+
+
+# For each reduction operation that we implement, we need to specify two functions:
+# - One which acts on a single chunk to get the desired result (e.g. np.amax for the 'max' operation)
+# - Another which combines the result of the first operation from two separate chunks
+   
+# This second function is required since the correct way to combine individual chunk results is operation 
+# dependent e.g. for the 'max' operation we want to re-apply the max function to the list of separate chunk 
+# results to get the max over all chunks but for the 'count' operation we can't just re-apply the count 
+# operation to a list of chunk results - we need to sum the individual chunk results instead.
+
+#Use enum which also subclasses string type so that auto-generated OpenAPI schema can determine allowed dtypes
+class AllowedReductions(str, Enum):
+    """ Reduction operations supported by active storage proxy """
+    sum = 'sum'
+    min = 'min'
+    max = 'max'
+    count = 'count'
+    select = 'select'
+
+@dataclass
+class Reducer:
+    """ Container to hold functions required for a chunk-wise reduction """
+    name: str
+    chunk_reducer: Callable
+    aggregator: Callable
+
+REDUCERS = {
+    'sum': Reducer('sum', chunk_reducer = lambda arr: np.sum(arr, dtype=arr.dtype), aggregator = lambda result1, result2: np.sum([result1, result2], dtype=result1.dtype)),
+    'min': Reducer('min', chunk_reducer = np.min, aggregator = lambda result1, result2: np.min([result1, result2])),
+    'max': Reducer('max', chunk_reducer = np.max, aggregator = lambda result1, result2: np.max([result1, result2])),
+    'count': Reducer('count', chunk_reducer = lambda arr: np.prod(arr.shape, dtype = 'int64'), aggregator = lambda result1, result2: np.sum([result1, result2], dtype='int64')), #Sum is the correct aggregator here
+    'select': Reducer('select', chunk_reducer = lambda arr: arr, aggregator = lambda result1, result2: np.concatenate([result2, result1], dtype=result1.dtype)),
+}

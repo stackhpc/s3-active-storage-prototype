@@ -1,162 +1,245 @@
-from fastapi import FastAPI, Depends, Path, Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import Response, StreamingResponse
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.responses import Response, JSONResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-import httpx
-
+import itertools
+import botocore
+import aioboto3
 import numpy as np
 
-from .config import settings
-from .models import NumericDataType
+from .models import RequestData, AllowedReductions, AllowedDatatypes, REDUCERS
 
 
 app = FastAPI()
+security = HTTPBasic()
 
 
-@app.on_event("startup")
-def on_startup():
+class S3Exception(Exception):
+    """ Custom exception class for catching upstream S3 exception """
+
+    def __init__(self, upstream_response):
+        super().__init__(self)
+        self.upstream_response = upstream_response
+
+
+@app.exception_handler(S3Exception)
+async def handle_upstream_s3_exception(request, exc: S3Exception):
     """
-    Initialises the HTTPX client on startup.
-    """
-    app.state.client = httpx.AsyncClient()
-
-
-@app.on_event("shutdown")
-async def on_shutdown():
-    """
-    Closes the HTTPX client on shutdown.
-    """
-    await app.state.client.aclose()
-
-
-@app.exception_handler(RequestValidationError)
-async def handle_validation_exception(request, exc):
-    """
-    Handles request validation errors by producing S3-style XML documents.
-
-    https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html#RESTErrorResponses
-    https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html#ErrorCodeList
+    Handles request validation errors stemming from the upstream S3 source.
     """
     # Just use the message from the first error
-    message = exc.errors()[0]["msg"]
-    content = "\n".join([
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
-        "<Error>",
-            "<Code>InvalidRequest</Code>",
-            f"<Message>{message}</Message>",
-            f"<Resource>{request['path']}</Resource>",
-#            "<RequestId>4442587FB7D0A2F9</RequestId>",
-        "</Error>"
-    ])
-    return Response(content, status_code = 400, media_type = "application/xml")
-
-
-@app.exception_handler(httpx.HTTPStatusError)
-async def handle_upstream_exception(request, exc):
-    """
-    Handles exceptions from querying the upstream S3 endpoint.
-    """
-    return Response(
-        exc.response.text,
-        status_code = exc.response.status_code,
-        media_type = exc.response.headers['content-type']
-    )
-
-
-def httpx_client(request: Request):
-    """
-    Returns the httpx client for the app.
-    """
-    return request.app.state.client
-
-
-async def upstream_response(
-    request: Request,
-    client: httpx.AsyncClient = Depends(httpx_client),
-    obj_path: str = Path(...)
-):
-    """
-    Returns a streaming response from the upstream based on the incoming request.
-    """
-    obj_url = f"{settings.s3_endpoint}/{obj_path}"
-    # Strip the host header from the upstream request
-    # Including it will cause an error unless the upstream S3 is expecting to be proxied
-    incoming_headers = list(
-        (k, v)
-        for k, v in request.headers.items()
-        if k.lower() != 'host'
-    )
-    async with client.stream("GET", obj_url, headers = incoming_headers) as response:
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError:
-            # Read the response while we are still in the context manager
-            await response.aread()
-            raise
-        else:
-            yield response
-
-
-#####
-# Register a handler for each supported reducer so that we correctly get 404s for
-# bad reducers
-#####
-
-def make_reducer_handler(reducer):
-    """
-    Make a handler for the specified reducer.
-    """
-    async def handler(
-        dtype: NumericDataType,
-        upstream_response: httpx.Response = Depends(upstream_response)
-    ):
-        result = None
-        async for chunk in upstream_response.aiter_bytes():
-            if not chunk:
-                continue
-            nparr = np.frombuffer(chunk, dtype)
-            if result is not None:
-                nparr = np.append(nparr, result)
-            result = reducer(nparr)
-        return Response(result.tobytes(), media_type = "application/octet-stream")
-    return handler
-
-
-REDUCERS = {
-    "max": np.amax,
-    "min": np.amin,
-    # Prevent sum from using a dtype with increased precision
-    "sum": lambda arr: np.sum(arr, dtype = arr.dtype),
-    # Always return counts as int64
-    "count": lambda arr: np.prod(arr.shape, dtype = np.int64),
-}
-for name, reducer in REDUCERS.items():
-    app.add_api_route(
-        f"/{name}/{{dtype}}/{{obj_path:path}}",
-        make_reducer_handler(reducer),
-        methods = ["GET"]
-    )
-
-
-@app.get("/obj/{obj_path:path}")
-async def obj(upstream_response: httpx.Response = Depends(upstream_response)):
-    """
-    Returns the content of the object at the given path.
-    """
-    return StreamingResponse(
-        upstream_response.aiter_bytes(),
-        status_code = upstream_response.status_code
-    )
-
-
-@app.get("/.well-known/s3-active-storage")
-async def well_known():
-    """
-    Responds with information about the supported operations.
-    """
-    return {
-        "active_storage_version": "v1",
-        "s3_endpoint": settings.s3_endpoint,
-        "available_reducers": list(REDUCERS.keys()),
-        "supported_datatypes": list(NumericDataType.DATATYPES.keys()),
+    aws_err_code = exc.upstream_response['Error']['Code']
+    aws_message = exc.upstream_response['Error']['Message']
+    aws_resource = exc.upstream_response['Error']['Resource']
+    content = {
+        'aws_error_code': aws_err_code,
+        'aws_error_message': aws_message,
+        'aws_target': aws_resource,
     }
+
+    return JSONResponse(
+        content,
+        status_code=exc.upstream_response['ResponseMetadata']['HTTPStatusCode'],
+        media_type='application/json'
+    )
+
+
+def validate_request(request_data: RequestData):
+    """
+    Checks that the supplied request data confroms to the API spec
+    and tries to provide informative error messages if not.
+    """
+    dtype = request_data.dtype
+    offset = request_data.offset
+    n_bytes = AllowedDatatypes[dtype].n_bytes()
+
+    if offset is not None and (offset < 0 or offset % n_bytes != 0):
+        msg = ' '.join([
+            'Offset parameter must be divisible by number of bytes in dtype',
+            f'(i.e. {n_bytes} for dtype {dtype}).',
+            f'Given offset = {request_data.offset}',
+        ])
+        raise HTTPException(status_code=400, detail=msg)
+
+    elif request_data.order not in ['C', 'F']:
+        msg = f"'order' parameter was '{request_data.order}' but must be either 'C' or 'F'"
+        raise HTTPException(status_code=400, detail=msg)
+
+    elif request_data.shape is None and request_data.selection is not None:
+        msg = 'When providing a selection parameter you must also provide an shape parameter'
+        raise HTTPException(status_code=400, detail=msg)
+
+    elif request_data.shape is not None:
+
+        if request_data.selection and len(request_data.shape) != len(request_data.selection):
+            raise HTTPException(
+                status_code=400,
+                detail='Selection parameter list must have same number of elements as shape parameter'
+            )
+
+    return
+
+
+def generate_bytes_ranges(request_data: RequestData) -> list[str]:
+    """ 
+    Calculates the appropriate bytes range to request from upstream depending on (offset, size, selection) fields in request data.
+    When a 'selection' is specified, the naive version implemented here creates a separate byte range header for each index in the selection.
+    -> This should be improved in future versions.
+    """
+
+    if request_data.selection is None:
+        # Return single byte range specified by offset and size parameters
+        bytes_start = request_data.offset or 0
+        bytes_end = ''  # Use empty str so open-ended range expression 'bytes=0-' is default
+        if request_data.size:
+            bytes_end = bytes_start + request_data.size - 1  # Subract 1 since HTTP range is inclusive
+        return [f'bytes={bytes_start}-{bytes_end}']
+
+    else:
+        # Convert selection specification into linear indices since each chunk of bytes returned by s3 is 1D
+        expanded_ranges = [list(range(*s)) for s in request_data.selection]
+        multi_dim_indices = list(itertools.product(*expanded_ranges))
+        linear_indices = list(np.ravel_multi_index(
+            idx, request_data.shape) for idx in multi_dim_indices)
+
+        # Convert to bytes values
+        n_bytes = AllowedDatatypes[request_data.dtype].n_bytes()
+        bytes_indices = [i * n_bytes for i in linear_indices]
+
+        # Trim down bytes range
+        if request_data.offset:
+            bytes_indices = filter(
+                lambda x: request_data.offset < x, bytes_indices)
+        if request_data.size:
+            # Subract 1 since HTTP range is inclusive
+            bytes_end = (0 or request_data.offset) + request_data.size - 1
+            bytes_indices = filter(lambda x: x < bytes_end, bytes_indices)
+
+        # Retrun HTTP Range header compliant string for each bytes range
+        return [f'bytes={i}-{i+n_bytes-1}' for i in bytes_indices]
+
+
+async def upstream_s3_response_generator(
+    request_data: RequestData,
+    credentials: HTTPBasicCredentials = Depends(security),
+):
+
+    """
+    Returns an async generator for the upstream request data.
+    """
+
+    bytes_ranges = generate_bytes_ranges(request_data)
+    s3_session = aioboto3.Session()
+    async with s3_session.client('s3', endpoint_url=request_data.source, aws_access_key_id=credentials.username, aws_secret_access_key=credentials.password) as s3_client:
+
+        try:
+
+            if len(bytes_ranges) == 1:
+                # Read response in chunks using iter_chunks method of S3 StreamingResponse
+                response = await s3_client.get_object(Bucket=request_data.bucket, Key=request_data.object, Range=bytes_ranges[0])
+                async for chunk in response['Body'].iter_chunks(chunk_size=1024*8):
+                    yield chunk
+
+            elif len(bytes_ranges) > 1:
+                # Otherwise, make one upstream request per byte range and return these as a generator
+                for b in bytes_ranges:
+                    response = await s3_client.get_object(Bucket=request_data.bucket, Key=request_data.object, Range=b)
+                    data = await response['Body'].read()
+                    yield data
+
+        except botocore.exceptions.ClientError as err:
+            raise S3Exception(err.response)
+
+        except botocore.exceptions.EndpointConnectionError as err:
+            # Create S3-like error dict to be parsed by exception handler
+            error_info = {
+                'Error': {
+                    'Code': 'UpstreamSourceNotFound',
+                    'Message': 'Could not connect to configured S3 source',
+                    'Resource': 'N/A'
+                },
+                'ResponseMetadata': {
+                    'HTTPStatusCode': 404
+                }
+            }
+            raise S3Exception(error_info)
+
+
+
+class OctetStreamResponse(Response):
+    """ Dummy response class which ensures that OpenAPI generated schema have correct response type for handler functions """
+    media_type = 'application/octet-stream'
+
+
+@app.post('/v1/{op_name}/', response_class=OctetStreamResponse)
+async def handler(op_name: AllowedReductions, request_data: RequestData, credentials=Depends(security)):
+
+    # Will return a relevant HTTP response to the client if request is invalid
+    validate_request(request_data)
+
+    operation = REDUCERS[op_name]
+
+    # Can't use generator funcs with Depends(...) so call here instead
+    upstream_response = upstream_s3_response_generator(request_data, credentials)
+
+    # Process upstream response in chunks
+    result = None
+    async for chunk in upstream_response:
+        np_arr = np.frombuffer(chunk, dtype=request_data.dtype)
+        chunk_result = operation.chunk_reducer(np_arr)
+        if result is None:
+            result = chunk_result  # Only happens for first chunk to be processed
+        else:
+            result = operation.aggregator(chunk_result, result)
+
+    response_headers = {
+        'x-activestorage-dtype': str(result.dtype),
+        'x-activestorage-shape': str(list(result.shape)),
+    }
+
+    return Response(content=result.tobytes(), status_code=200, media_type='application/octet-stream', headers=response_headers)
+
+
+
+
+
+# def make_reducer_handler(operation: Reducer) -> callable:
+#     """ Constructs a handler function for each allowed api operation """
+
+#     async def handler(request_data: RequestData, credentials=Depends(security)):
+
+#         # Will return a relevant HTTP response to the client if request is invalid
+#         validate_request(request_data)
+
+#         # Can't use generator funcs with Depends(...) so call here instead
+#         upstream_response = upstream_s3_response_generator(
+#             request_data, credentials)
+
+#         # Process upstream response in chunks
+#         result = None
+#         async for chunk in upstream_response:
+#             np_arr = np.frombuffer(chunk, dtype=request_data.dtype)
+#             chunk_result = operation.chunk_reducer(np_arr)
+#             if result is None:
+#                 result = chunk_result  # Only happens for first chunk to be processed
+#             else:
+#                 result = operation.aggregator(chunk_result, result)
+
+#         response_headers = {
+#             'x-activestorage-dtype': str(result.dtype),
+#             'x-activestorage-shape': str(list(result.shape)),
+#         }
+
+#         return Response(content=result.tobytes(), status_code=200, media_type='application/octet-stream', headers=response_headers)
+
+#     return handler
+
+
+# # Loop through allowed operations and generate api endpoints
+# for op in ALLOWED_OPERATIONS.values():
+#     app.add_api_route(
+#         f'/v1/{op.name}/',
+#         make_reducer_handler(op),
+#         methods=['POST'],
+#         response_class=OctetStreamResponse,
+#     )
