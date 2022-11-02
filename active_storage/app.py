@@ -53,12 +53,13 @@ def validate_request(request_data: RequestData):
     n_bytes = AllowedDatatypes[dtype].n_bytes()
 
     if offset is not None and (offset < 0 or offset % n_bytes != 0):
-        msg = ' '.join([
-            'Offset parameter must be divisible by number of bytes in dtype',
-            f'(i.e. {n_bytes} for dtype {dtype}).',
-            f'Given offset = {request_data.offset}',
-        ])
-        raise HTTPException(status_code=400, detail=msg)
+        # msg = ' '.join([
+        #     'Offset parameter must be divisible by number of bytes in dtype',
+        #     f'(i.e. {n_bytes} for dtype {dtype}).',
+        #     f'Given offset = {request_data.offset}',
+        # ])
+        # raise HTTPException(status_code=400, detail=msg)
+        pass
 
     elif request_data.order not in ['C', 'F']:
         msg = f"'order' parameter was '{request_data.order}' but must be either 'C' or 'F'"
@@ -95,7 +96,7 @@ async def upstream_s3_response(request_data: RequestData, credentials: HTTPBasic
             bytes_start = request_data.offset or 0
             bytes_end = '' #Use empty string to default to open-ended range request
             if request_data.size is not None:
-                bytes_start + request_data.size
+                bytes_end = bytes_start + request_data.size - 1 #Subtract 1 since bytes ranges are inclusive
             response = await s3_client.get_object(Bucket=request_data.bucket, Key=request_data.object, Range=f'bytes={bytes_start}-{bytes_end}')
             response_data = await response['Body'].read()
         
@@ -140,7 +141,8 @@ async def handler(operation_name: AllowedReductions, request_data: RequestData, 
 
     if request_data.shape is not None:
         try:
-            response_arr = response_arr.reshape(request_data.shape)
+            # response_arr = response_arr.reshape(-1, order='A') #To match PyActiveStorage - don't really understand why it's needed, maybe some NetCDF4-specific reason?
+            response_arr = response_arr.reshape(request_data.shape, order=request_data.order)
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err).replace('array', 'chunk'))
 
