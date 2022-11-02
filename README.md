@@ -53,7 +53,7 @@ with a json payload of the form:
 
     // The number of bytes to read
     // - optional, defaults to the size of the entire object
-    "size": 100,
+    "size": 128,
 
     // The shape of the data (i.e. the size of each dimension) 
     // - optional, defaults to a simple 1D array
@@ -76,7 +76,7 @@ with a json payload of the form:
 
 The currently supported reducers are `max`, `min`, `sum`, `select` and `count`. All reducers return the result using the same datatype as specified in the request except for `count` which always returns the result as `int64`.
 
-For a running instance of the proxy server, the full OpenAPI specification is browsable at the `{proxy-address}/docs/` endpoint.
+For a running instance of the proxy server, the full OpenAPI specification is browsable as a web page at the `{proxy-address}/redoc/` endpoint or in raw json form at `{proxy-address}/openapi.json`.
 
 
 ## Caveats
@@ -106,7 +106,7 @@ Start the local [Minio](https://min.io/) server which serves the test data:
 
 The Minio server will run until it is stopped using `Ctrl+C`.
 
-In a separate terminal, install and run the S3 active storage proxy using a Python virtualenv:
+In a separate terminal, set up the Python virtualenv then upload some sample data before running the S3 active storage proxy using:
 
 ```sh
 # Create a virtualenv
@@ -115,10 +115,12 @@ python -m venv ./venv
 source ./venv/bin/activate
 # Install the S3 active storage package and dependencies
 pip install -e .
+# Upload some sample data to the running minio server
+python ./scripts/upload_sample_data.py
 # Install an ASGI server to run the application
 pip install uvicorn
 # Launch the application
-uvicorn --reload active_storage.server:app
+uvicorn --reload active_storage.app:app
 ```
 
 Proxy functionality can be tested using the [S3 active storage compliance suite](https://github.com/stackhpc/s3-active-storage-compliance-suite).
