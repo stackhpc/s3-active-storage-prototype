@@ -42,6 +42,7 @@ class AllowedReductions(str, Enum):
     max = 'max'
     count = 'count'
     select = 'select'
+    mean = 'mean'
 
 REDUCERS = {
     'sum': lambda arr: np.sum(arr, dtype=arr.dtype),
@@ -49,4 +50,5 @@ REDUCERS = {
     'max': np.max,
     'count': lambda arr: np.prod(arr.shape, dtype = 'int64'), #Force specific dtype
     'select': lambda arr: arr,
+    'mean': lambda arr: (np.sum(arr) / np.size(arr)).astype(arr.dtype),
 }
