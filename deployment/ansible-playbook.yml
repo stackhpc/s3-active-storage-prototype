@@ -1,0 +1,61 @@
+# # Test play
+# - name: Hello VM
+#   hosts: all
+#   tasks:
+#     - name: Ping hosts
+#       ansible.builtin.ping:
+#     - name: Print message
+#       ansible.builtin.debug:
+#         msg: Hello
+
+- name: Set up system packages
+  hosts: all
+  become: true
+  tasks:
+
+    - name: Install docker daemon
+      ansible.builtin.apt:
+        name: docker.io
+        state: present
+
+    - name: Start dockerd
+      ansible.builtin.service:
+        name: docker
+        state: started
+
+    - name: Start containerd
+      ansible.builtin.service:
+        name: docker
+        state: started
+
+    - name: Install git
+      ansible.builtin.apt:
+        name: git
+        state: present
+
+    - name: Install pip
+      ansible.builtin.apt:
+        name: python3-pip
+        state: present
+
+    - name: Install docker python module
+      ansible.builtin.pip:
+        name: docker
+
+- name: Run active storage proxy
+  hosts: all
+  tasks:
+
+    - name: Clone github repo
+      ansible.builtin.git:
+        repo: 'http://github.com/stackhpc/s3-active-storage'
+        dest: '{{ ansible_env.HOME }}/s3-active-storage'
+        version: main
+
+    - name: Build proxy server docker image
+      become: true
+      community.docker.docker_image:
+        build:
+          path: '{{ ansible_env.HOME }}/s3-active-storage/'
+        name: active-storage-proxy
+        source: build
