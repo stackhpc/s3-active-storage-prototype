@@ -1,22 +1,9 @@
-
+---
+# Template inventory
 all:
     hosts:
-
-        # Local ubuntu vm
-        # 192.168.64.14:
-        #     ansible_user: ubuntu
-        #     ansible_private_key_file: ~/.ssh/keys/multipass_id_rsa
-
-        # Openstack sms VM defined in ssh config
-        # sms-active-storage-proxy-Ubuntu:
+        # VM defined in ssh config:
+        sms-active-storage-proxy-Ubuntu:
         sms-active-storage-proxy-CentOS:
-        # sms-active-storage-proxy-RL9:
+        sms-active-storage-proxy-RL9:
 
-    # children:
-    #     debian:
-    #         hosts:
-    #             192.168.64.14:
-
-    #     redhat:
-    #         hosts:
-    #             sms-active-storage-proxy:
