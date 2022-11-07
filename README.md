@@ -91,7 +91,15 @@ In particular, the following are known limitations which we intend to address:
 
 ## Install and run the demo server
 
-First, clone the repository:
+### Automated deployment 
+
+The `deployment/` directory contains an [Ansible](https://docs.ansible.com/ansible/latest/getting_started/index.html) playbook for automated deployment which has been tested on Ubuntu, CentOS Stream 8 and Rocky Linux 9.
+
+### Manual setup
+
+For local delvelopment and testing, the python package can instead be installed manually. 
+
+First, clone this repository:
 
 ```sh
 git clone https://github.com/stackhpc/s3-active-storage.git
@@ -101,7 +109,8 @@ cd s3-active-storage
 Start the local [Minio](https://min.io/) server which serves the test data:
 
 ```sh
-./bin/minio-run
+chmod +x ./scripts/minio-run
+./scripts/minio-run
 ```
 
 The Minio server will run until it is stopped using `Ctrl+C`.
