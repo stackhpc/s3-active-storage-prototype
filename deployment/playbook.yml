@@ -10,6 +10,7 @@
       ansible.builtin.package:
         name: docker.io
         state: present
+        update_cache: true
 
     - name: Add docker repo signing key on RedHat
       when: ansible_facts['os_family'] | lower == 'redhat'

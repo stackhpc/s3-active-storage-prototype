@@ -93,7 +93,7 @@ In particular, the following are known limitations which we intend to address:
 
 ### Automated deployment 
 
-The `deployment/` directory contains an [Ansible](https://docs.ansible.com/ansible/latest/getting_started/index.html) playbook for automated deployment which has been tested on Ubuntu, CentOS Stream 8 and Rocky Linux 9.
+The `deployment/` directory contains an [Ansible](https://docs.ansible.com/ansible/latest/getting_started/index.html) playbook for automated deployment which has been tested on Ubuntu 22.04, CentOS Stream 8 and Rocky Linux 9.
 
 ### Manual setup
 
