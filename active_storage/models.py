@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field, constr, conint, conlist
 import numpy as np
 
 
-#Use enum which also subclasses string type so that auto-generated OpenAPI schema can determine allowed dtypes
+#Use enum which also subclasses string type so that 
+# auto-generated OpenAPI schema can determine allowed dtypes
 class AllowedDatatypes(str, Enum):
     """ Data types supported by active storage proxy """
     int64 = 'int64'
@@ -28,13 +29,15 @@ class RequestData(BaseModel):
     object: constr(min_length=1)
     dtype: AllowedDatatypes
     offset: Optional[conint(ge=0)]
-    size: Optional[conint(ge=1)] = Field(example=1024) #Use example kwarg for OpenAPI generated schema
+    #Use example kwarg for OpenAPI generated schema
+    size: Optional[conint(ge=1)] = Field(example=1024)
     shape: Optional[conlist(item_type=conint(ge=1), min_items=1)]
     order: str = 'C'
     selection: Optional[List[conlist(item_type=conint(ge=0), max_items=3, min_items=3)]]
 
 
-#Use enum which also subclasses string type so that auto-generated OpenAPI schema can determine allowed dtypes
+#Use enum which also subclasses string type so that 
+# auto-generated OpenAPI schema can determine allowed dtypes
 class AllowedReductions(str, Enum):
     """ Reduction operations supported by active storage proxy """
     sum = 'sum'
