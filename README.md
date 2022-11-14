@@ -163,3 +163,9 @@ sum_result = np.frombuffer(response.content, dtype=response.headers['x-activesto
 ```
 
 The proxy adds two custom headers `x-activestorage-dtype` and `x-activestrorage-shape` to the HTTP response to allow the numeric result to be reconstructed from the binary content of the response.
+
+---
+
+### A note on row-major ('C') vs column-major ('F') ordering
+
+Since we use `numpy` to implement all array options, it is simplest to perform all internal operations using C ordering (see [here](https://numpy.org/doc/stable/dev/internals.html#numpy-internals) for discussion). To accomplish this, if the incoming requests specifies that the source data is Fortran-ordered (via `order = 'F'` in the request body) then the data bytes are first read from the S3 source into an array of the correct shape before transposing this array to convert from 'F' to 'C' ordering. Once the data reduction is complete, the result is then converted back to raw bytes using the same ordering convention as specified in the incoming request. This ensures that all internal numpy operations are performed efficiently while also returning the raw response bytes in the order requested.

@@ -153,9 +153,13 @@ async def handler(
 
     if request_data.shape is not None:
         try:
-            response_arr = response_arr.reshape(request_data.shape, order=request_data.order)
+            response_arr = response_arr.reshape(request_data.shape)
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err).replace('array', 'chunk'))
+
+    # Convert input data to row-major order if required
+    if request_data.order == 'F':
+        response_arr = response_arr.T.copy()
 
     if request_data.selection is not None:
         slices = tuple(slice(*s) for s in request_data.selection)
@@ -170,7 +174,8 @@ async def handler(
     }
 
     return Response(
-        content=result.tobytes(), 
+        # Make sure to return result in same bytes order input
+        content=result.tobytes(order=request_data.order),
         status_code=200, 
         media_type='application/octet-stream', 
         headers=response_headers
