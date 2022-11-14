@@ -1,0 +1,88 @@
+---
+
+- name: Set up active storage proxy
+  hosts: all
+  become: true
+  tasks:
+
+    - name: Install docker on Ubuntu
+      when: ansible_facts['os_family'] | lower == 'debian'
+      ansible.builtin.package:
+        name: docker.io
+        state: present
+        update_cache: true
+
+    - name: Add docker repo signing key on RedHat
+      when: ansible_facts['os_family'] | lower == 'redhat'
+      ansible.builtin.rpm_key:
+        key: "https://download.docker.com/linux/centos/gpg"
+        state: present
+
+    - name: Add docker repository to RedHat
+      when: ansible_facts['os_family'] | lower == 'redhat'
+      ansible.builtin.yum_repository:
+        name: docker
+        description: docker repository
+        baseurl: "https://download.docker.com/linux/centos/$releasever/$basearch/stable"
+        enabled: true
+        gpgcheck: true
+        gpgkey: "https://download.docker.com/linux/centos/gpg"
+
+    - name: Install docker on RedHat
+      when: ansible_facts['os_family'] | lower == 'redhat'
+      ansible.builtin.package:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+        update_cache: true
+
+    - name: Install other system packages
+      ansible.builtin.package:
+        name:
+          - git
+          - python3-pip
+        state: present
+
+    - name: Start docker
+      ansible.builtin.service:
+        name: "docker"
+        enabled: true
+        state: started
+
+    - name: Install docker python packages
+      ansible.builtin.pip:
+        name:
+          - docker
+
+    - name: Clone active storage repo
+      ansible.builtin.git:
+        repo: 'http://github.com/stackhpc/s3-active-storage'
+        dest: '{{ ansible_env.HOME }}/s3-active-storage'
+        version: deployment
+
+    - name: Build proxy server docker image
+      community.docker.docker_image:
+        name: active-storage-proxy
+        build:
+          network: host # Network to use for RUN cmds in dockerfile - needed to allow 'pip install...' in RedHad images
+          path: '{{ ansible_env.HOME }}/s3-active-storage/'
+        source: build
+
+    - name: Start proxy server docker container
+      community.docker.docker_container:
+        name: active-storage-proxy
+        image: active-storage-proxy
+        networks:
+          - name: host
+
+    - name: Start minio docker container
+      community.docker.docker_container:
+        name: minio-server
+        image: minio/minio
+        command: server data --console-address ":9001"
+        volumes: /data
+        keep_volumes: false
+        networks:
+          - name: host
