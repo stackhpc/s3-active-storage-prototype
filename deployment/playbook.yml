@@ -5,20 +5,20 @@
   become: true
   tasks:
 
-    - name: Install docker on Ubuntu
+    - name: Ensure docker is installed on Ubuntu
       when: ansible_facts['os_family'] | lower == 'debian'
       ansible.builtin.package:
         name: docker.io
         state: present
         update_cache: true
 
-    - name: Add docker repo signing key on RedHat
+    - name: Ensure docker repo signing key exists on RedHat
       when: ansible_facts['os_family'] | lower == 'redhat'
       ansible.builtin.rpm_key:
         key: "https://download.docker.com/linux/centos/gpg"
         state: present
 
-    - name: Add docker repository to RedHat
+    - name: Ensure docker repo exists on RedHat
       when: ansible_facts['os_family'] | lower == 'redhat'
       ansible.builtin.yum_repository:
         name: docker
@@ -28,7 +28,7 @@
         gpgcheck: true
         gpgkey: "https://download.docker.com/linux/centos/gpg"
 
-    - name: Install docker on RedHat
+    - name: Ensure docker is installed on RedHat
       when: ansible_facts['os_family'] | lower == 'redhat'
       ansible.builtin.package:
         name:
@@ -38,31 +38,31 @@
         state: present
         update_cache: true
 
-    - name: Install other system packages
+    - name: Ensure other system packages are present
       ansible.builtin.package:
         name:
           - git
           - python3-pip
         state: present
 
-    - name: Start docker
+    - name: Check docker is running
       ansible.builtin.service:
         name: "docker"
         enabled: true
         state: started
 
-    - name: Install docker python packages
+    - name: Ensure docker python package is present
       ansible.builtin.pip:
         name:
           - docker
 
-    - name: Clone active storage repo
+    - name: Clone latest active storage repo version
       ansible.builtin.git:
         repo: 'http://github.com/stackhpc/s3-active-storage'
         dest: '{{ ansible_env.HOME }}/s3-active-storage'
         version: deployment
 
-    - name: Build proxy server docker image
+    - name: Ensure proxy server docker image is built
       community.docker.docker_image:
         name: active-storage-proxy
         build:
@@ -70,14 +70,14 @@
           path: '{{ ansible_env.HOME }}/s3-active-storage/'
         source: build
 
-    - name: Start proxy server docker container
+    - name: Ensure proxy server container is running
       community.docker.docker_container:
         name: active-storage-proxy
         image: active-storage-proxy
         networks:
           - name: host
 
-    - name: Start minio docker container
+    - name: Ensure minio container is running
       community.docker.docker_container:
         name: minio-server
         image: minio/minio
