@@ -60,13 +60,13 @@
       ansible.builtin.git:
         repo: 'http://github.com/stackhpc/s3-active-storage'
         dest: '{{ ansible_env.HOME }}/s3-active-storage'
-        version: deployment
+        version: main
 
     - name: Ensure proxy server docker image is built
       community.docker.docker_image:
         name: active-storage-proxy
         build:
-          network: host # Network to use for RUN cmds in dockerfile - needed to allow 'pip install...' in RedHad images
+          network: host # Network to use for RUN cmds in dockerfile - needed to allow 'pip install...' in RedHat images
           path: '{{ ansible_env.HOME }}/s3-active-storage/'
         source: build
 
