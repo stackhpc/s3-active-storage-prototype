@@ -27,20 +27,24 @@ async def handle_upstream_s3_exception(request, exc: S3Exception):
     Handles request validation errors stemming from the upstream S3 source.
     """
     # Just use the message from the first error
-    aws_err_code = exc.upstream_response['Error']['Code']
-    aws_message = exc.upstream_response['Error']['Message']
-    aws_resource = exc.upstream_response['Error']['Resource']
-    content = {
-        'aws_error_code': aws_err_code,
-        'aws_error_message': aws_message,
-        'aws_target': aws_resource,
-    }
+    try:
+        aws_err_code = exc.upstream_response['Error']['Code']
+        aws_message = exc.upstream_response['Error']['Message']
+        aws_resource = exc.upstream_response['Error']['Resource']
+        content = {
+            'aws_error_code': aws_err_code,
+            'aws_error_message': aws_message,
+            'aws_target': aws_resource,
+        }
+    except KeyError: # Some S3-like services have different keys (e.g. ceph's radosgw)
+        content = {'aws_error': exc.upstream_response['Error']}
 
     return JSONResponse(
         content,
         status_code=exc.upstream_response['ResponseMetadata']['HTTPStatusCode'],
         media_type='application/json'
     )
+
 
 
 def validate_request(request_data: RequestData):
