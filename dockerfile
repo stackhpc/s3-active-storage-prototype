@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 
-FROM python:3.11
+FROM python:3.10
 
-RUN git clone -b deployment https://github.com/stackhpc/s3-active-storage/
+RUN git clone -b main https://github.com/stackhpc/s3-active-storage/
 
 WORKDIR /s3-active-storage
 RUN pip install . 
