@@ -1,9 +1,0 @@
----
-# Template inventory
-all:
-    hosts:
-        # VM defined in ssh config:
-        sms-active-storage-proxy-Ubuntu:
-        sms-active-storage-proxy-CentOS:
-        sms-active-storage-proxy-RL9:
-
