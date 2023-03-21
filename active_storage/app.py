@@ -1,3 +1,5 @@
+import json
+
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import Response, JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -170,7 +172,7 @@ async def handler(
 
     response_headers = {
         'x-activestorage-dtype': str(result.dtype),
-        'x-activestorage-shape': str(list(result.shape)),
+        'x-activestorage-shape': json.dumps(list(result.shape)),
     }
 
     return Response(
