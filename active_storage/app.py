@@ -155,15 +155,11 @@ async def handler(
     response_data = await upstream_s3_response(request_data, credentials)
     response_arr = np.frombuffer(response_data, dtype=request_data.dtype)
 
-    if request_data.shape is not None:
-        try:
-            response_arr = response_arr.reshape(request_data.shape)
-        except ValueError as err:
-            raise HTTPException(status_code=400, detail=str(err).replace('array', 'chunk'))
-
-    # Convert input data to row-major order if required
-    if request_data.order == 'F':
-        response_arr = response_arr.T.copy()
+    shape = request_data.shape or response_arr.shape
+    try:
+        response_arr = response_arr.reshape(shape, order=request_data.order)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err).replace('array', 'chunk'))
 
     if request_data.selection is not None:
         slices = tuple(slice(*s) for s in request_data.selection)
