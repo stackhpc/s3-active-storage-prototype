@@ -105,8 +105,8 @@ For local delvelopment and testing, the python package can instead be installed 
 First, clone this repository:
 
 ```sh
-git clone https://github.com/stackhpc/s3-active-storage.git
-cd s3-active-storage
+git clone https://github.com/stackhpc/s3-active-storage-prototype.git
+cd s3-active-storage-prototype
 ```
 
 Start the local [Minio](https://min.io/) server which serves the test data:
@@ -125,7 +125,7 @@ In a separate terminal, set up the Python virtualenv then upload some sample dat
 python -m venv ./venv
 # Activate the virtualenv
 source ./venv/bin/activate
-# Install the S3 active storage package and dependencies
+# Install the S3 active storage prototype package and dependencies
 pip install -e .
 # Upload some sample data to the running minio server
 python ./scripts/upload_sample_data.py
