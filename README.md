@@ -1,8 +1,11 @@
-# s3-active-storage
+# S3 Active Storage Prototype
 
 This project implements simple reductions on S3 objects containing numeric binary data.
 By implementing these reductions in the storage system the volume of data that needs to be
 transferred to the end user is vastly reduced, leading to faster computations.
+
+This is a prototype implementation. A more fully featured and performant implementation is
+available at https://github.com/stackhpc/reductionist-rs.
 
 The work is funded by the
 [ExCALIBUR project](https://www.metoffice.gov.uk/research/approach/collaboration/spf/excalibur)
